@@ -1,3 +1,4 @@
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const express = require('express');
 const app = express();
@@ -61,9 +62,17 @@ app.post('/send_dm', async (req, res) => {
     const user = await client.users.fetch(userId);
     console.log(`Đã tìm thấy user ${user.tag}`);
     
-    await user.send(content);
+    // Format tin nhắn với Discord markdown
+    await user.send({
+      content: content,
+      allowedMentions: { parse: [] } // Không ping user
+    });
+    
     console.log(`✅ Đã gửi DM cho ${user.tag}`);
-    res.json({ success: true });
+    res.json({ 
+      success: true,
+      message: `Đã gửi tin nhắn cho ${user.tag}`
+    });
   } catch (err) {
     console.error('❌ Lỗi gửi DM:', err);
     res.status(500).json({ 
