@@ -123,13 +123,16 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // 📌 Lệnh tra cứu ACE6
-  if (message.content === '!ace6') {
+  // 📌 Lệnh tra cứu ACE
+  if (message.content === '!ace') {
     const discordId = message.author.id;
 
     try {
-      const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30'; 
-      const rangeHeader = "'Tổng hợp xử lý khen thưởng'!A1:Z2"; 
+      const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30';
+      const sheetKhenThuong = 'Tổng hợp xử lý khen thưởng';
+
+      // 👉 Lấy header + discordId
+      const rangeHeader = `'${sheetKhenThuong}'!A1:Z2`;
       const resHeader = await sheetsClient.spreadsheets.values.get({
         spreadsheetId: sheetId,
         range: rangeHeader
@@ -144,23 +147,27 @@ client.on('messageCreate', async message => {
       }
 
       const tenNhanSu = headers[index];
+
+      // 👉 Lấy dòng 3, 6, 7
       const colLetter = String.fromCharCode(65 + index);
-      const rangeData = `'Tổng hợp xử lý khen thưởng'!${colLetter}6:${colLetter}7`;
+      const rangeData = `'${sheetKhenThuong}'!${colLetter}3:${colLetter}7`;
       const resData = await sheetsClient.spreadsheets.values.get({
         spreadsheetId: sheetId,
         range: rangeData
       });
 
-      const soThang = resData.data.values[0][0] || "0";
-      const tongDiem = resData.data.values[1][0] || "0";
+      const diemHienTai = resData.data.values[0]?.[0] || "0";
+      const soThang = resData.data.values[3]?.[0] || "0";
+      const tongDiem6Thang = resData.data.values[4]?.[0] || "0";
 
       const msg = `📊 Thông tin ACE của **${tenNhanSu}**:\n` +
+                  `• Điểm ACE tháng hiện tại: **${diemHienTai}** điểm\n` +
                   `• Số tháng làm việc: **${soThang}** tháng\n` +
-                  `• Tổng điểm ACE chu kỳ gần nhất: **${tongDiem}** điểm`;
+                  `• Tổng điểm ACE chu kỳ gần nhất: **${tongDiem6Thang}** điểm`;
 
       await message.reply(msg);
     } catch (err) {
-      console.error('❌ Lỗi xử lý !ace6:', err);
+      console.error('❌ Lỗi xử lý !ace:', err);
       await message.reply(`❌ Có lỗi xảy ra khi tra cứu ACE: ${err.message}`);
     }
   }
