@@ -1,8 +1,21 @@
 
 const { Client, GatewayIntentBits } = require('discord.js');
 const express = require('express');
+const { google } = require('googleapis');
 const app = express();
-const client = new Client({ 
+
+// 👉 Google Sheets API setup (dùng ENV)
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+const sheets = google.sheets('v4');
+const auth = new google.auth.GoogleAuth({
+  credentials: credentials,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
+});
+
+const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30'; // ✅ Google Sheet ID
+const range = 'Danh sách mã tham chiếu!A:B'; // ✅ Tên sheet + cột A (Mã), B (Nội dung)
+
+const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -15,15 +28,39 @@ const client = new Client({
 
 const token = process.env.DISCORD_TOKEN;
 
+// 👉 Hàm tra cứu mã lỗi từ Google Sheets
+async function traCuuMaLoi(maCode) {
+  const clientAuth = await auth.getClient();
+  const res = await sheets.spreadsheets.values.get({
+    auth: clientAuth,
+    spreadsheetId: sheetId,
+    range: range
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length === 0) return null;
+
+  for (const row of rows) {
+    if (row[0]?.toUpperCase() === maCode.toUpperCase()) {
+      return row[1] || '(Không có nội dung mô tả)';
+    }
+  }
+  return null;
+}
+
 client.once('ready', () => {
   console.log('✅ Bot đã online!');
 });
 
 client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+
+  // 📌 Lệnh ping
   if (message.content === '!ping') {
     return message.reply('Pong! 🏓');
   }
-  
+
+  // 📌 Lệnh gửi DM
   if (message.content.startsWith('!send')) {
     const parts = message.content.split(' ');
     const userId = parts[1];
@@ -38,9 +75,41 @@ client.on('messageCreate', async message => {
       message.reply(`❌ Không gửi được DM cho <@${userId}>: ${err.message}`);
     }
   }
+
+  // 📌 Lệnh tra cứu mã lỗi
+  if (message.content.startsWith('!ma ')) {
+    const parts = message.content.split(' ');
+    const maCode = parts[1]?.toUpperCase();
+
+    if (!maCode) {
+      return message.reply('❌ Vui lòng nhập mã sau lệnh !ma (Ví dụ: !ma CM-01)');
+    }
+
+    if (!maCode.match(/^[A-Z0-9-]+$/)) {
+      return message.reply('❌ Mã không hợp lệ. Mã chỉ được chứa chữ cái, số và dấu gạch ngang.');
+    }
+
+    try {
+      const noiDung = await traCuuMaLoi(maCode);
+      if (noiDung) {
+        message.reply(`📄 Mã **${maCode}**: ${noiDung}`);
+      } else {
+        message.reply(`❌ Không tìm thấy mã **${maCode}** trong danh sách.\nVui lòng kiểm tra lại mã hoặc liên hệ admin.`);
+      }
+    } catch (err) {
+      console.error('❌ Lỗi tra cứu mã:', err);
+      if (err.message.includes('The caller does not have permission')) {
+        message.reply('❌ Bot không có quyền truy cập Google Sheet. Vui lòng liên hệ admin.');
+      } else if (err.message.includes('invalid_grant')) {
+        message.reply('❌ Token Google Sheet hết hạn. Vui lòng liên hệ admin để cập nhật.');
+      } else {
+        message.reply('❌ Có lỗi xảy ra khi tra cứu. Vui lòng thử lại sau hoặc liên hệ admin.');
+      }
+    }
+  }
 });
 
-// Add webhook endpoint
+// Webhook endpoint
 app.use(express.json());
 
 app.get('/', (req, res) => {
@@ -49,7 +118,7 @@ app.get('/', (req, res) => {
 
 app.post('/send_dm', async (req, res) => {
   const { userId, content } = req.body;
-  
+
   if (!userId || !content) {
     return res.status(400).json({
       success: false,
@@ -61,30 +130,28 @@ app.post('/send_dm', async (req, res) => {
     console.log(`Đang tìm user ${userId}...`);
     const user = await client.users.fetch(userId);
     console.log(`Đã tìm thấy user ${user.tag}`);
-    
-    // Format tin nhắn với Discord markdown
+
     await user.send({
       content: content,
-      allowedMentions: { parse: [] } // Không ping user
+      allowedMentions: { parse: [] }
     });
-    
+
     console.log(`✅ Đã gửi DM cho ${user.tag}`);
-    res.json({ 
+    res.json({
       success: true,
       message: `Đã gửi tin nhắn cho ${user.tag}`
     });
   } catch (err) {
     console.error('❌ Lỗi gửi DM:', err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       error: err.message,
       userId: userId
     });
   }
 });
 
-// Start server
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server đang chạy ở port ${PORT}`);
 });
