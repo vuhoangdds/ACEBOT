@@ -19,6 +19,8 @@ const auth = new google.auth.GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
 });
 
+const sheetsClient = google.sheets({version: 'v4', auth});
+
 const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30'; // ✅ Google Sheet ID
 const range = 'Danh sách mã tham chiếu!A:B'; // ✅ Tên sheet + cột A (Mã), B (Nội dung)
 
@@ -118,6 +120,48 @@ client.on('messageCreate', async message => {
       } else {
         message.reply('❌ Có lỗi xảy ra khi tra cứu. Vui lòng thử lại sau.');
       }
+    }
+  }
+
+  // 📌 Lệnh tra cứu ACE6
+  if (message.content === '!ace6') {
+    const discordId = message.author.id;
+
+    try {
+      const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30'; 
+      const rangeHeader = "'Tổng hợp xử lý khen thưởng'!A1:Z2"; 
+      const resHeader = await sheetsClient.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: rangeHeader
+      });
+
+      const [headers, discordIds] = resHeader.data.values;
+      const index = discordIds.indexOf(discordId);
+
+      if (index === -1) {
+        await message.reply(`❌ Không tìm thấy Discord ID của bạn trong hệ thống.`);
+        return;
+      }
+
+      const tenNhanSu = headers[index];
+      const colLetter = String.fromCharCode(65 + index);
+      const rangeData = `'Tổng hợp xử lý khen thưởng'!${colLetter}6:${colLetter}7`;
+      const resData = await sheetsClient.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: rangeData
+      });
+
+      const soThang = resData.data.values[0][0] || "0";
+      const tongDiem = resData.data.values[1][0] || "0";
+
+      const msg = `📊 Thông tin ACE của **${tenNhanSu}**:\n` +
+                  `• Số tháng làm việc: **${soThang}** tháng\n` +
+                  `• Tổng điểm ACE chu kỳ gần nhất: **${tongDiem}** điểm`;
+
+      await message.reply(msg);
+    } catch (err) {
+      console.error('❌ Lỗi xử lý !ace6:', err);
+      await message.reply(`❌ Có lỗi xảy ra khi tra cứu ACE: ${err.message}`);
     }
   }
 });
