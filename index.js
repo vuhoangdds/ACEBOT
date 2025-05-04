@@ -1,7 +1,8 @@
 
-const { Client, GatewayIntentBits } = require('discord.js');
-const express = require('express');
-const { google } = require('googleapis');
+import { Client, GatewayIntentBits } from 'discord.js';
+import express from 'express';
+import { google } from 'googleapis';
+
 const app = express();
 
 // 👉 Google Sheets API setup (dùng ENV)
