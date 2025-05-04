@@ -221,6 +221,45 @@ app.post('/send_dm', async (req, res) => {
   }
 });
 
+// 📌 Webhook gửi message vào channel
+app.post('/send_channel', async (req, res) => {
+  const { channelId, content } = req.body;
+
+  if (!channelId || !content) {
+    return res.status(400).json({
+      success: false, 
+      error: 'Missing channelId or content'
+    });
+  }
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel) {
+      return res.status(404).json({
+        success: false,
+        error: `Channel ${channelId} not found`
+      });
+    }
+
+    await channel.send({
+      content: content,
+      allowedMentions: { parse: [] }
+    });
+
+    console.log(`✅ Đã gửi tin nhắn đến channel ${channel.name}`);
+    res.json({
+      success: true,
+      message: `Đã gửi tin nhắn đến channel ${channel.name}`
+    });
+  } catch (err) {
+    console.error('❌ Lỗi gửi message channel:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server đang chạy ở port ${PORT}`);
