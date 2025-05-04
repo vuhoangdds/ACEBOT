@@ -1,4 +1,3 @@
-
 const { Client, GatewayIntentBits } = require('discord.js');
 const express = require('express');
 const app = express();
@@ -7,9 +6,10 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ],
-  partials: ['CHANNEL']
+  partials: ['CHANNEL', 'MESSAGE', 'USER']
 });
 
 const token = process.env.DISCORD_TOKEN;
@@ -49,8 +49,18 @@ app.get('/', (req, res) => {
 app.post('/send_dm', async (req, res) => {
   const { userId, content } = req.body;
   
+  if (!userId || !content) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing userId or content'
+    });
+  }
+
   try {
+    console.log(`Đang tìm user ${userId}...`);
     const user = await client.users.fetch(userId);
+    console.log(`Đã tìm thấy user ${user.tag}`);
+    
     await user.send(content);
     console.log(`✅ Đã gửi DM cho ${user.tag}`);
     res.json({ success: true });
@@ -58,7 +68,8 @@ app.post('/send_dm', async (req, res) => {
     console.error('❌ Lỗi gửi DM:', err);
     res.status(500).json({ 
       success: false, 
-      error: err.message 
+      error: err.message,
+      userId: userId
     });
   }
 });
