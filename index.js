@@ -19,7 +19,9 @@ const auth = new google.auth.GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
 });
 
-const sheetsClient = google.sheets({version: 'v4', auth});
+// Khởi tạo Google Sheets client một lần khi start
+const sheetsClientPromise = auth.getClient().then(auth => google.sheets({ version: 'v4', auth }));
+const sheetsClient = await sheetsClientPromise;
 
 const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30'; // ✅ Google Sheet ID
 const range = 'Danh sách mã tham chiếu!A:B'; // ✅ Tên sheet + cột A (Mã), B (Nội dung)
@@ -112,14 +114,17 @@ client.on('messageCreate', async message => {
       }
     } catch (err) {
       console.error('❌ Lỗi tra cứu mã:', err);
+      let errorMsg = '❌ Có lỗi xảy ra khi tra cứu: ';
       
       if (err.message?.includes('API has not been used')) {
-        message.reply('❌ Google Sheets API chưa được kích hoạt. Vui lòng liên hệ admin.');
+        errorMsg += 'Google Sheets API chưa được kích hoạt. Vui lòng liên hệ admin.';
       } else if (err.code === 403) {
-        message.reply('❌ Bot không có quyền truy cập Google Sheet. Vui lòng kiểm tra lại credentials.');
+        errorMsg += 'Bot không có quyền truy cập Google Sheet. Vui lòng kiểm tra lại credentials.';
       } else {
-        message.reply('❌ Có lỗi xảy ra khi tra cứu. Vui lòng thử lại sau.');
+        errorMsg += err.message;
       }
+      
+      await message.reply(errorMsg);
     }
   }
 
