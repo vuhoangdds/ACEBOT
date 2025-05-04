@@ -5,7 +5,14 @@ const { google } = require('googleapis');
 const app = express();
 
 // 👉 Google Sheets API setup (dùng ENV)
-const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+let credentials;
+try {
+  credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
+} catch (err) {
+  console.error('❌ Lỗi parse credentials:', err);
+  credentials = {};
+}
+
 const sheets = google.sheets('v4');
 const auth = new google.auth.GoogleAuth({
   credentials: credentials,
@@ -21,9 +28,18 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessageReactions,
+    GatewayIntentBits.DirectMessageTyping
   ],
-  partials: ['CHANNEL', 'MESSAGE', 'USER']
+  partials: [
+    'CHANNEL',
+    'MESSAGE',
+    'USER',
+    'GUILD_MEMBER',
+    'REACTION',
+    'DIRECT_MESSAGE'
+  ]
 });
 
 const token = process.env.DISCORD_TOKEN;
@@ -82,11 +98,7 @@ client.on('messageCreate', async message => {
     const maCode = parts[1]?.toUpperCase();
 
     if (!maCode) {
-      return message.reply('❌ Vui lòng nhập mã sau lệnh !ma (Ví dụ: !ma CM-01)');
-    }
-
-    if (!maCode.match(/^[A-Z0-9-]+$/)) {
-      return message.reply('❌ Mã không hợp lệ. Mã chỉ được chứa chữ cái, số và dấu gạch ngang.');
+      return message.reply('❌ Hãy nhập mã lỗi sau lệnh !ma');
     }
 
     try {
@@ -94,16 +106,17 @@ client.on('messageCreate', async message => {
       if (noiDung) {
         message.reply(`📄 Mã **${maCode}**: ${noiDung}`);
       } else {
-        message.reply(`❌ Không tìm thấy mã **${maCode}** trong danh sách.\nVui lòng kiểm tra lại mã hoặc liên hệ admin.`);
+        message.reply(`❌ Không tìm thấy mã **${maCode}** trong danh sách.`);
       }
     } catch (err) {
       console.error('❌ Lỗi tra cứu mã:', err);
-      if (err.message.includes('The caller does not have permission')) {
-        message.reply('❌ Bot không có quyền truy cập Google Sheet. Vui lòng liên hệ admin.');
-      } else if (err.message.includes('invalid_grant')) {
-        message.reply('❌ Token Google Sheet hết hạn. Vui lòng liên hệ admin để cập nhật.');
+      
+      if (err.message?.includes('API has not been used')) {
+        message.reply('❌ Google Sheets API chưa được kích hoạt. Vui lòng liên hệ admin.');
+      } else if (err.code === 403) {
+        message.reply('❌ Bot không có quyền truy cập Google Sheet. Vui lòng kiểm tra lại credentials.');
       } else {
-        message.reply('❌ Có lỗi xảy ra khi tra cứu. Vui lòng thử lại sau hoặc liên hệ admin.');
+        message.reply('❌ Có lỗi xảy ra khi tra cứu. Vui lòng thử lại sau.');
       }
     }
   }
