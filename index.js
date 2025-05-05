@@ -186,6 +186,10 @@ app.get('/', (req, res) => {
   res.send('Bot server is running!');
 });
 
+app.get('/ping', (req, res) => {
+  res.send('Pong! Bot is alive.');
+});
+
 app.post('/send_dm', async (req, res) => {
   const { userId, content } = req.body;
 
