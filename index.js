@@ -211,27 +211,37 @@ app.post('/send_channel', async (req, res) => {
 // ✅ Lắng nghe reaction
 client.on('messageReactionAdd', async (reaction, user) => {
   try {
-    if (user.bot) return;
-    const messageId = reaction.message.id;
-    console.log(`🔥 Reaction messageId=${messageId} từ user=${user.id}`);
+    console.log(`🔥 [reaction] Received reaction event!`);
+    console.log(`📝 messageId = ${reaction.message.id}`);
+    console.log(`👤 userId = ${user.id} (${user.tag})`);
+    console.log(`😀 emoji = ${reaction.emoji.name}`);
+    console.log(`📋 pendingApprovals keys = ${JSON.stringify(Array.from(pendingApprovals.keys()))}`);
 
-    if (!pendingApprovals.has(messageId)) {
-      console.log('⚠️ Reaction không thuộc message cần duyệt.');
+    if (user.bot) {
+      console.log(`⏩ Reaction from bot → ignored.`);
       return;
     }
 
-    const discordIdNguoiDuyet = pendingApprovals.get(messageId);
+    if (!pendingApprovals.has(reaction.message.id)) {
+      console.log(`⚠️ Reaction messageId ${reaction.message.id} NOT FOUND in pendingApprovals.`);
+      return;
+    }
+
+    const discordIdNguoiDuyet = pendingApprovals.get(reaction.message.id);
+    console.log(`✅ Found pendingApproval: discordIdNguoiDuyet = ${discordIdNguoiDuyet}`);
+
     const channel = reaction.message.channel;
 
     if (user.id === discordIdNguoiDuyet) {
       const nguoiDuyet = mappingNhanSu.find(u => u.discordId === user.id);
       const tenNguoiDuyet = nguoiDuyet ? nguoiDuyet.tenNhanSu : 'Người duyệt';
       await channel.send(`✅ Đơn đã được duyệt bởi **${tenNguoiDuyet}**.`);
-      pendingApprovals.delete(messageId);
-      console.log('✅ Đã xoá tracking.');
+      console.log(`✅ Reaction APPROVED by đúng người (${user.tag})`);
+      pendingApprovals.delete(reaction.message.id);
+      console.log(`🗑️ Removed messageId ${reaction.message.id} from pendingApprovals.`);
     } else {
       await channel.send(`❌ <@${user.id}> không phải người duyệt, vui lòng không phê duyệt hộ.`);
-      console.log(`⚠️ ${user.id} không phải người duyệt hợp lệ.`);
+      console.log(`🚨 Reaction từ ${user.tag} KHÔNG ĐÚNG người duyệt (${discordIdNguoiDuyet})`);
     }
   } catch (err) {
     console.error('❌ Lỗi xử lý reaction:', err);
