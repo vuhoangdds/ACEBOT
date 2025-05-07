@@ -2,6 +2,7 @@ import express from 'express';
 import { google } from 'googleapis';
 import nacl from 'tweetnacl';
 import bodyParser from 'body-parser';
+import fetch from 'node-fetch'; // Nếu cần gửi HTTP từ server (hiếm)
 
 const app = express();
 
@@ -66,7 +67,7 @@ function verifyDiscordRequest(req, res, buf) {
   }
 }
 
-// 👉 Webhook for Discord interactions (slash command)
+// ✅ Slash command webhook (interactions)
 app.post('/interactions', bodyParser.raw({ type: 'application/json' }), (req, res) => {
   try {
     verifyDiscordRequest(req, res, req.body);
@@ -74,12 +75,11 @@ app.post('/interactions', bodyParser.raw({ type: 'application/json' }), (req, re
     const interaction = JSON.parse(req.body.toString('utf8'));
     console.log('🔥 Interaction received:', interaction.type);
 
-    // Pong back for Discord ping
+    // Pong back cho ping
     if (interaction.type === 1) {
       return res.json({ type: 1 });
     }
 
-    // Slash command handler
     if (interaction.type === 2) {
       const commandName = interaction.data.name;
       const options = interaction.data.options || [];
@@ -141,7 +141,65 @@ app.post('/interactions', bodyParser.raw({ type: 'application/json' }), (req, re
   }
 });
 
-// ✅ Các route check đơn giản
+// ✅ Webhook gửi DM từ Google Script (hoặc nguồn khác)
+app.post('/send_dm', express.json(), async (req, res) => {
+  const { userId, content } = req.body;
+  if (!userId || !content) {
+    return res.status(400).json({ success: false, error: 'Missing userId or content' });
+  }
+
+  try {
+    // Gửi trực tiếp qua Discord API
+    await fetch(`https://discord.com/api/v10/users/@me/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        recipient_id: userId,
+        content: content,
+        allowed_mentions: { parse: [] }
+      })
+    });
+
+    console.log(`✅ Đã gửi DM cho userId: ${userId}`);
+    res.json({ success: true, message: `Đã gửi DM cho userId: ${userId}` });
+  } catch (err) {
+    console.error('❌ Lỗi gửi DM:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ Webhook gửi tin nhắn channel từ Google Script (hoặc nguồn khác)
+app.post('/send_channel', express.json(), async (req, res) => {
+  const { channelId, content } = req.body;
+  if (!channelId || !content) {
+    return res.status(400).json({ success: false, error: 'Missing channelId or content' });
+  }
+
+  try {
+    await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: content,
+        allowed_mentions: { parse: ['users'] }
+      })
+    });
+
+    console.log(`✅ Đã gửi message lên channelId: ${channelId}`);
+    res.json({ success: true, message: `Đã gửi message lên channelId: ${channelId}` });
+  } catch (err) {
+    console.error('❌ Lỗi gửi channel:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ Check server
 app.get('/', (req, res) => res.send('Bot server is running!'));
 app.get('/ping', (req, res) => res.send('Pong! Bot is alive.'));
 
