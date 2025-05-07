@@ -1,12 +1,11 @@
+import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
 import express from 'express';
 import { google } from 'googleapis';
-import nacl from 'tweetnacl';
-import bodyParser from 'body-parser';
-import fetch from 'node-fetch'; // Nếu cần gửi HTTP từ server (hiếm)
+import crypto from 'crypto';
 
 const app = express();
 
-// 👉 Google Sheets API setup (dùng ENV)
+// 👉 Google Sheets API setup
 let credentials;
 try {
   credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
@@ -21,16 +20,54 @@ const auth = new google.auth.GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
 });
 
-const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30'; // Google Sheet ID
-const range = 'Danh sách mã tham chiếu!A:B'; // Sheet + cột
+const sheetsClientPromise = auth.getClient().then(auth => google.sheets({ version: 'v4', auth }));
+const sheetsClient = await sheetsClientPromise;
 
-// 👉 Hàm tra cứu mã lỗi từ Google Sheets
+const sheetId = process.env.SHEET_ID; // Sheet ID từ env
+const range = 'Danh sách mã tham chiếu!A:B'; // Ví dụ: mã + mô tả
+
+// ✅ Slash command đăng ký
+const token = process.env.DISCORD_BOT_TOKEN;
+const clientId = process.env.APPLICATION_ID;
+const guildId = process.env.GUILD_ID; // Test nhanh trong 1 server
+
+const commands = [
+  {
+    name: 'ping',
+    description: 'Kiểm tra bot còn sống.',
+  },
+  {
+    name: 'ma',
+    description: 'Tra cứu mã lỗi hoặc mã thưởng.',
+    options: [
+      {
+        name: 'code',
+        type: 3, // STRING
+        description: 'Nhập mã cần tra cứu',
+        required: true,
+      },
+    ],
+  },
+];
+
+// ✅ Khởi tạo Discord client
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+  partials: ['CHANNEL'],
+});
+
+// 👉 Hàm tra cứu mã từ Google Sheets
 async function traCuuMaLoi(maCode) {
   const clientAuth = await auth.getClient();
   const res = await sheets.spreadsheets.values.get({
     auth: clientAuth,
     spreadsheetId: sheetId,
-    range: range
+    range: range,
   });
 
   const rows = res.data.values;
@@ -44,165 +81,88 @@ async function traCuuMaLoi(maCode) {
   return null;
 }
 
-// 👉 Verify signature middleware
-function verifyDiscordRequest(req, res, buf) {
-  const signature = req.get('X-Signature-Ed25519');
-  const timestamp = req.get('X-Signature-Timestamp');
+// 👉 Đăng ký slash command khi bot khởi động
+client.once('ready', async () => {
+  console.log('✅ Bot đã online! Đang đăng ký slash command...');
 
-  if (!signature || !timestamp) {
-    res.status(401).send('Missing signature or timestamp');
-    return;
-  }
-
-  const isVerified = nacl.sign.detached.verify(
-    Buffer.from(timestamp + buf),
-    Buffer.from(signature, 'hex'),
-    Buffer.from(process.env.DISCORD_PUBLIC_KEY, 'hex')
-  );
-
-  if (!isVerified) {
-    console.warn('⚠️ Invalid request signature');
-    res.status(401).send('Invalid request signature');
-    throw new Error('Invalid request signature');
-  }
-}
-
-// ✅ Slash command webhook (interactions)
-app.post('/interactions', bodyParser.raw({ type: 'application/json' }), (req, res) => {
+  const rest = new REST({ version: '10' }).setToken(token);
   try {
-    verifyDiscordRequest(req, res, req.body);
-
-    const interaction = JSON.parse(req.body.toString('utf8'));
-    console.log('🔥 Interaction received:', interaction.type);
-
-    // Pong back cho ping
-    if (interaction.type === 1) {
-      return res.json({ type: 1 });
-    }
-
-    if (interaction.type === 2) {
-      const commandName = interaction.data.name;
-      const options = interaction.data.options || [];
-
-      if (commandName === 'ma') {
-        const maCode = options.find(opt => opt.name === 'code')?.value?.toUpperCase();
-        if (!maCode) {
-          return res.json({
-            type: 4,
-            data: {
-              content: '❌ Bạn chưa nhập mã cần tra cứu.'
-            }
-          });
-        }
-
-        traCuuMaLoi(maCode)
-          .then(noiDung => {
-            const reply = noiDung
-              ? `📄 Mã **${maCode}**: ${noiDung}`
-              : `❌ Không tìm thấy mã **${maCode}** trong danh sách.`;
-
-            return res.json({
-              type: 4,
-              data: {
-                content: reply
-              }
-            });
-          })
-          .catch(err => {
-            console.error('❌ Lỗi tra cứu mã:', err);
-            return res.json({
-              type: 4,
-              data: {
-                content: '❌ Có lỗi xảy ra khi tra cứu mã.'
-              }
-            });
-          });
-      } else if (commandName === 'ping') {
-        return res.json({
-          type: 4,
-          data: {
-            content: '🏓 Pong!'
-          }
-        });
-      } else {
-        return res.json({
-          type: 4,
-          data: {
-            content: `❓ Slash command chưa hỗ trợ: ${commandName}`
-          }
-        });
-      }
-    }
+    await rest.put(
+      Routes.applicationGuildCommands(clientId, guildId),
+      { body: commands }
+    );
+    console.log('✅ Slash command đã đăng ký thành công!');
   } catch (err) {
-    console.error('❌ Lỗi xử lý interaction:', err);
-    if (!res.headersSent) {
-      res.status(500).send('Server error');
+    console.error('❌ Lỗi đăng ký slash command:', err);
+  }
+});
+
+// 👉 Xử lý slash command
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'ping') {
+    await interaction.reply('🏓 Pong! Bot đang hoạt động.');
+  }
+
+  if (interaction.commandName === 'ma') {
+    const maCode = interaction.options.getString('code');
+    try {
+      const noiDung = await traCuuMaLoi(maCode);
+      if (noiDung) {
+        await interaction.reply(`📄 Mã **${maCode}**: ${noiDung}`);
+      } else {
+        await interaction.reply(`❌ Không tìm thấy mã **${maCode}** trong danh sách.`);
+      }
+    } catch (err) {
+      console.error('❌ Lỗi tra cứu mã:', err);
+      await interaction.reply('❌ Đã xảy ra lỗi khi tra cứu mã.');
     }
   }
 });
 
-// ✅ Webhook gửi DM từ Google Script (hoặc nguồn khác)
-app.post('/send_dm', express.json(), async (req, res) => {
+// ✅ Webhook /send_dm
+app.use(express.json());
+
+app.post('/send_dm', async (req, res) => {
   const { userId, content } = req.body;
-  if (!userId || !content) {
-    return res.status(400).json({ success: false, error: 'Missing userId or content' });
-  }
+  if (!userId || !content) return res.status(400).json({ success: false, error: 'Thiếu userId hoặc content' });
 
   try {
-    // Gửi trực tiếp qua Discord API
-    await fetch(`https://discord.com/api/v10/users/@me/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        recipient_id: userId,
-        content: content,
-        allowed_mentions: { parse: [] }
-      })
-    });
-
-    console.log(`✅ Đã gửi DM cho userId: ${userId}`);
-    res.json({ success: true, message: `Đã gửi DM cho userId: ${userId}` });
+    const user = await client.users.fetch(userId);
+    await user.send({ content: content, allowedMentions: { parse: [] } });
+    console.log(`✅ Đã gửi DM cho ${user.tag}`);
+    res.json({ success: true, message: `Đã gửi DM cho ${user.tag}` });
   } catch (err) {
     console.error('❌ Lỗi gửi DM:', err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message, userId });
   }
 });
 
-// ✅ Webhook gửi tin nhắn channel từ Google Script (hoặc nguồn khác)
-app.post('/send_channel', express.json(), async (req, res) => {
+// ✅ Webhook /send_channel
+app.post('/send_channel', async (req, res) => {
   const { channelId, content } = req.body;
-  if (!channelId || !content) {
-    return res.status(400).json({ success: false, error: 'Missing channelId or content' });
-  }
+  if (!channelId || !content) return res.status(400).json({ success: false, error: 'Thiếu channelId hoặc content' });
 
   try {
-    await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        content: content,
-        allowed_mentions: { parse: ['users'] }
-      })
-    });
+    const channel = await client.channels.fetch(channelId);
+    if (!channel) return res.status(404).json({ success: false, error: `Không tìm thấy channel ${channelId}` });
 
-    console.log(`✅ Đã gửi message lên channelId: ${channelId}`);
-    res.json({ success: true, message: `Đã gửi message lên channelId: ${channelId}` });
+    await channel.send({ content: content, allowedMentions: { parse: ['users'] } });
+    console.log(`✅ Đã gửi tin nhắn vào channel ${channel.name}`);
+    res.json({ success: true, message: `Đã gửi tin nhắn vào channel ${channel.name}` });
   } catch (err) {
     console.error('❌ Lỗi gửi channel:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ✅ Check server
+// 👉 Health check
 app.get('/', (req, res) => res.send('Bot server is running!'));
 app.get('/ping', (req, res) => res.send('Pong! Bot is alive.'));
 
 // 👉 Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server chạy ở port ${PORT}`));
+
+client.login(token);
