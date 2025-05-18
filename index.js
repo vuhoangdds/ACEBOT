@@ -2,6 +2,7 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import express from 'express';
 import { google } from 'googleapis';
 import nacl from 'tweetnacl';
+import fetch from 'node-fetch';
 
 const app = express();
 
@@ -20,9 +21,10 @@ const auth = new google.auth.GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
 });
 
-const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30'; // hardcode luôn
+const sheetId = '1pkXoeQeVGriV7dwkoaLEh3irWA8YcSyt9zawxvvHh30'; // ACE điểm thưởng
+const sheetIdDuyetDon = '19_GVd7JHsO4BOgXfCDy60VLzJJBqyJs7D6u9d7o3GFw'; // Sheet ID hệ thống duyệt đơn riêng biệt
 
-// ✅ Khởi tạo bot (vẫn cần để gửi DM, channel)
+// ✅ Khởi tạo bot
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -43,6 +45,7 @@ app.use(express.json({
 }));
 
 const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
+const WEBAPP_URL = process.env.WEBAPP_URL || 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
 
 app.post('/interactions', async (req, res) => {
   const signature = req.get('X-Signature-Ed25519');
@@ -54,47 +57,52 @@ app.post('/interactions', async (req, res) => {
     Buffer.from(PUBLIC_KEY, 'hex')
   );
 
-  if (!isVerified) {
-    return res.status(401).send('Invalid request signature');
-  }
+  if (!isVerified) return res.status(401).send('Invalid request signature');
 
   const interaction = req.body;
-  if (interaction.type === 1) {
-    return res.send({ type: 1 });  // Pong với Discord
-  }
+  if (interaction.type === 1) return res.send({ type: 1 });
 
   if (interaction.type === 2) {
     const { name, options } = interaction.data;
+    const userId = interaction.member?.user?.id || interaction.user?.id;
 
     if (name === 'ping') {
-      return res.json({
-        type: 4,
-        data: { content: '🏓 Pong!' }
-      });
+      return res.json({ type: 4, data: { content: '🏓 Pong!' } });
     }
 
     if (name === 'ace') {
-      const userId = interaction.member?.user?.id || interaction.user?.id;
       const reply = await handleAceCommandById(userId);
-      return res.json({
-        type: 4,
-        data: { content: reply }
-      });
+      return res.json({ type: 4, data: { content: reply } });
     }
 
     if (name === 'ma') {
       const maCode = options?.[0]?.value;
       if (!maCode) {
-        return res.json({
-          type: 4,
-          data: { content: '❌ Bạn cần nhập mã lỗi sau lệnh.' }
-        });
+        return res.json({ type: 4, data: { content: '❌ Bạn cần nhập mã lỗi sau lệnh.' } });
       }
       const reply = await traCuuMaLoi(maCode);
-      return res.json({
-        type: 4,
-        data: { content: reply }
-      });
+      return res.json({ type: 4, data: { content: reply } });
+    }
+
+    if (name === 'duyet' || name === 'tuchoi') {
+      const id = options?.[0]?.value;
+      const payload = {
+        action: name,
+        id,
+        discordUserId: userId
+      };
+      try {
+        const r = await fetch(WEBAPP_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const reply = await r.text();
+        return res.json({ type: 4, data: { content: reply } });
+      } catch (err) {
+        console.error(`❌ Lỗi gọi webhook /${name}:`, err);
+        return res.json({ type: 4, data: { content: '❌ Gặp lỗi khi xử lý lệnh.' } });
+      }
     }
   }
 });
@@ -107,12 +115,10 @@ async function traCuuMaLoi(maCode) {
     const res = await sheets.spreadsheets.values.get({
       auth: clientAuth,
       spreadsheetId: sheetId,
-      range: range
+      range
     });
-
     const rows = res.data.values;
     if (!rows || rows.length === 0) return `❌ Không tìm thấy mã **${maCode}**.`;
-
     for (const row of rows) {
       if (row[0]?.toUpperCase() === maCode.toUpperCase()) {
         return `📄 Mã **${maCode.toUpperCase()}**: ${row[1] || '(Không có mô tả)'}`;
@@ -136,12 +142,9 @@ async function handleAceCommandById(discordId) {
       spreadsheetId: sheetId,
       range: rangeHeader
     });
-
     const [headers, discordIds] = resHeader.data.values;
     const index = discordIds.indexOf(discordId);
-    if (index === -1) {
-      return `❌ Không tìm thấy Discord ID của bạn.`;
-    }
+    if (index === -1) return `❌ Không tìm thấy Discord ID của bạn.`;
 
     const tenNhanSu = headers[index];
     const colLetter = String.fromCharCode(65 + index);
@@ -170,15 +173,14 @@ async function handleAceCommandById(discordId) {
 app.post('/send_dm', async (req, res) => {
   const { userId, content } = req.body;
   if (!userId || !content) return res.status(400).json({ success: false, error: 'Missing userId or content' });
-
   try {
     const user = await client.users.fetch(userId);
-    await user.send({ content: content, allowedMentions: { parse: [] } });
+    await user.send({ content, allowedMentions: { parse: [] } });
     console.log(`✅ Đã gửi DM cho ${user.tag}`);
     res.json({ success: true, message: `Đã gửi DM cho ${user.tag}` });
   } catch (err) {
     console.error('❌ Lỗi gửi DM:', err);
-    res.status(500).json({ success: false, error: err.message, userId: userId });
+    res.status(500).json({ success: false, error: err.message, userId });
   }
 });
 
@@ -186,12 +188,10 @@ app.post('/send_dm', async (req, res) => {
 app.post('/send_channel', async (req, res) => {
   const { channelId, content } = req.body;
   if (!channelId || !content) return res.status(400).json({ success: false, error: 'Missing channelId or content' });
-
   try {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return res.status(404).json({ success: false, error: `Channel ${channelId} not found` });
-
-    const sentMessage = await channel.send({ content: content, allowedMentions: { parse: ['users'] } });
+    const sentMessage = await channel.send({ content, allowedMentions: { parse: ['users'] } });
     console.log(`✅ Đã gửi tin nhắn channel ${channel.name}`);
     res.json({ success: true, message: `Đã gửi channel ${channel.name}`, messageId: sentMessage.id });
   } catch (err) {
