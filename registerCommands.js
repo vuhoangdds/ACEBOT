@@ -1,16 +1,21 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { REST, Routes } from 'discord.js';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_ID     = process.env.CLIENT_ID;
 
 const commands = [
   {
     name: 'ping',
-    description: 'Kiểm tra bot online hay không'
+    description: 'Kiểm tra bot online hay không',
+    dm_permission: true
   },
   {
     name: 'ma',
     description: 'Tra cứu mã điểm thưởng/điểm lỗi',
+    dm_permission: true,
     options: [
       {
         name: 'code',
@@ -22,11 +27,13 @@ const commands = [
   },
   {
     name: 'ace',
-    description: 'Xem điểm ACE của chính bạn'
+    description: 'Xem điểm ACE của chính bạn',
+    dm_permission: true
   },
   {
     name: 'duyet',
     description: 'Duyệt đơn xin phép',
+    dm_permission: true,
     options: [
       {
         name: 'id',
@@ -39,6 +46,7 @@ const commands = [
   {
     name: 'tuchoi',
     description: 'Từ chối đơn xin phép',
+    dm_permission: true,
     options: [
       {
         name: 'id',
@@ -54,10 +62,10 @@ const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('🔄 Đang đăng ký GLOBAL Slash Commands...');
+    console.log('🔄 Đang đăng ký GLOBAL Slash Commands (với dm_permission = true)...');
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log('✅ Đăng ký Slash Commands GLOBAL thành công!');
+    console.log('✅ Đăng ký Slash Commands thành công!');
   } catch (err) {
-    console.error('❌ Lỗi đăng ký command:', err);
+    console.error('❌ Lỗi đăng ký Command:', err);
   }
 })();
