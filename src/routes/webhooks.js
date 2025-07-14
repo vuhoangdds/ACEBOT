@@ -7,7 +7,7 @@ const router = express.Router();
  * POST /send_dm
  * Body: { discordId or userId, message or content }
  */
-router.post('/send_dm', (req, res) => {
+router.post('/send_dm', async (req, res) => {
   const userId = req.body.userId || req.body.discordId;
   const content = req.body.content || req.body.message;
 
@@ -20,26 +20,28 @@ router.post('/send_dm', (req, res) => {
     return res.status(400).json({ success: false, error: 'Missing userId or content' });
   }
 
-  // BƯỚC 1: TRẢ LỜI CHO GOOGLE APPS SCRIPT NGAY LẬP TỨC
-  res.status(200).json({ success: true, status: 'Request received and is being processed.' });
+  try {
+    // BÂY GIỜ CHÚNG TA SẼ "AWAIT" ĐỂ CHỜ GỬI XONG
+    // Điều này đảm bảo tiến trình không bị dừng đột ngột.
+    console.log('>> Đang chuẩn bị gọi hàm sendDM...');
+    await sendDM(req.app.get('discordClient'), userId, content);
 
-  // BƯỚC 2: THỰC HIỆN GỬI TIN NHẮN TRONG NỀN (fire-and-forget)
-  // Chúng ta không dùng "await" ở đây để không bắt Google phải chờ.
-  sendDM(req.app.get('discordClient'), userId, content)
-    .then(() => {
-      console.log(`✅ Gửi DM thành công tới user ${userId}`);
-    })
-    .catch(e => {
-      // Nếu có lỗi, chỉ ghi log trên server Render chứ không ảnh hưởng đến Google Apps Script
-      console.error(`❌ Lỗi khi gửi DM (trong nền) tới user ${userId}:`, e.message);
-    });
+    // Sau khi gửi thành công, mới trả lời cho Google Apps Script
+    console.log('✅ Gửi DM thành công');
+    return res.status(200).json({ success: true });
+
+  } catch (e) {
+    // Nếu có lỗi ở bước gửi, báo lỗi chi tiết
+    console.error('❌ Lỗi trong quá trình gửi DM:', e);
+    return res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 /**
  * POST /send_channel
  * Body: { channelId, content }
  */
-router.post('/send_channel', (req, res) => {
+router.post('/send_channel', async (req, res) => {
   const channelId = req.body.channelId;
   const content = req.body.content;
 
@@ -52,17 +54,17 @@ router.post('/send_channel', (req, res) => {
     return res.status(400).json({ success: false, error: 'Missing channelId or content' });
   }
 
-  // BƯỚC 1: TRẢ LỜI CHO GOOGLE APPS SCRIPT NGAY LẬP TỨC
-  res.status(200).json({ success: true, status: 'Request received and is being processed.' });
+  try {
+    console.log('>> Đang chuẩn bị gọi hàm sendChannel...');
+    await sendChannel(req.app.get('discordClient'), channelId, content);
 
-  // BƯỚC 2: THỰC HIỆN GỬI TIN NHẮN TRONG NỀN
-  sendChannel(req.app.get('discordClient'), channelId, content)
-    .then(() => {
-      console.log(`✅ Gửi Channel thành công tới kênh ${channelId}`);
-    })
-    .catch(e => {
-      console.error(`❌ Lỗi khi gửi Channel (trong nền) tới kênh ${channelId}:`, e.message);
-    });
+    console.log('✅ Gửi Channel thành công');
+    return res.status(200).json({ success: true });
+
+  } catch (e) {
+    console.error('❌ Lỗi trong quá trình gửi Channel:', e);
+    return res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 export default router;
